@@ -1,6 +1,6 @@
 #include "MorseEncoder.h"
 
-//#define DEBUG
+// #define DEBUG
 
 // configuración de e/s
 #define PTT_PIN 10
@@ -12,11 +12,12 @@
 // configuración de PTT
 #define PTT_AUDIO_TRIGGER 250  // umbral de detección (nivel de audio) para activación
 #define PTT_ACTIVATION_LIMIT_MS 180000  // "anti-poncho" [ms]
+//#define PTT_ACTIVATION_LIMIT_MS 30000  // "anti-poncho" [ms]
 #define PTT_ACTIVATION_WARNING_MS PTT_ACTIVATION_LIMIT_MS * 0.9  // warning del "anti-poncho"
 #define PTT_ACTIVATION_WARNING_INTERVAL_MS 5000  // intervalo de repetición del warning
 
 // configuración de baliza
-#define BEACON_INTERVAL 600000  // intervalo en [ms]
+#define BEACON_INTERVAL 1200000  // intervalo en [ms]
 #define BEACON_MESSAGE "RCV LXR 25 DE MAYO BA"  // baliza CW
 
 // generador de CW (baliza)
@@ -36,7 +37,7 @@ void setup() {
   Serial.begin(115200);
 #endif
 
-  morse.beginAudio(20, 440);
+  morse.beginAudio(20, 880);
 }
 
 /// @brief samplea ADC y calcula integral, integral en valor absoluto y valor máximo
@@ -61,13 +62,13 @@ long getAudioLevel() {
   return absIntegral;
 }
 
+bool active = false;
+long lastActivation = millis();
+long lastWarning = millis();
+long lastBeacon = millis();
+int forceBeaconCnt = 0;
 void loop() {
-  static bool active = false;
-  static long lastActivation = millis();
-  static long lastWarning = millis();
-  static long lastBeacon = millis();
-  static int forceBeaconCnt = 0;
-  long activeTime;
+  long activeTime = active ? millis() - lastActivation : 0;
 
   // activación (ptt) de la repetidora por actividad de audio
   long audioLevel = getAudioLevel();
@@ -79,20 +80,22 @@ void loop() {
   } else {
     if (active) {
       active = false;
-      if (activeTime < 10){
-        forceBeaconCnt++;
-      }
+      // baliza forzada
+      if (activeTime < 1000)  // activación corta?
+        forceBeaconCnt++;  //incrementarmos contador para generar baliza forzada
     }
   }
-
-  activeTime = millis() - lastActivation;
 
   // inhibe baliza por actividad (>10s)
   // genera warnings (beeps) por proximidad del "anti-poncho"
   if (active) {
-    if (activeTime > 10) {
+    if (activeTime >= 5000) {
+      // reiniciamos temporizador de baliza
       lastBeacon = millis();
+      // reiniciamos contador de baliza forzada
+      forceBeaconCnt = 0;
     }
+    // warning del "anti-poncho"
     if (activeTime > PTT_ACTIVATION_WARNING_MS) {
       if (millis() - lastWarning > PTT_ACTIVATION_WARNING_INTERVAL_MS) {
         morse.print('E');
@@ -119,10 +122,10 @@ void loop() {
   }
 
 #ifdef DEBUG
-  Serial.print(audioLevel);
-  Serial.print(",");
-  Serial.print(activeTime / 1000);
-  Serial.print(",");
+  Serial.print(audioLevel); Serial.print(",");
+  Serial.print(active); Serial.print(",");
+  Serial.print(activeTime / 1000); Serial.print(",");
+  Serial.print(forceBeaconCnt); Serial.print(",");
   Serial.println(ptt);
 #endif
 
